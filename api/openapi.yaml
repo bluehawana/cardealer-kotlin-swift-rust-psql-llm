@@ -1,0 +1,491 @@
+openapi: 3.0.3
+info:
+  title: CarDeal — Vehicle Intelligence API
+  description: |
+    A SaaS API for querying vehicle data and generating AI-powered evaluation
+    reports for the Swedish used-car market. Aggregates inspection records, recall
+    data, tax information, and market valuation into a single comprehensive report.
+  version: 1.0.0
+  contact:
+    name: CarDeal Team
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      tags: [System]
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/v1/vehicles/query:
+    post:
+      summary: Query vehicle and generate full report
+      description: |
+        The core endpoint. Checks cache → DB → external API, enriches with AI
+        analysis, caches the result, and returns a complete vehicle report.
+      tags: [Vehicles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryRequest"
+      responses:
+        "200":
+          description: Full vehicle report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vehicles/basic:
+    get:
+      summary: Get basic vehicle information
+      tags: [Vehicles]
+      parameters:
+        - name: plate
+          in: query
+          required: true
+          schema:
+            type: string
+          example: CPK169
+      responses:
+        "200":
+          description: Basic vehicle info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BasicInfo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vehicles/inspection:
+    get:
+      summary: Get vehicle inspection history
+      tags: [Vehicles]
+      parameters:
+        - name: plate
+          in: query
+          required: true
+          schema:
+            type: string
+          example: CPK169
+      responses:
+        "200":
+          description: Inspection history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InspectionInfo"
+
+  /api/v1/vehicles/recalls:
+    get:
+      summary: Get vehicle recall information
+      tags: [Vehicles]
+      parameters:
+        - name: vin
+          in: query
+          required: true
+          schema:
+            type: string
+          example: WDB9046131R618741
+      responses:
+        "200":
+          description: Recall information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecallInfo"
+
+  /api/v1/valuation:
+    get:
+      summary: Get vehicle valuation estimate
+      tags: [Valuation]
+      parameters:
+        - name: plate
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Valuation data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plate:
+                    type: string
+                  price_estimate:
+                    $ref: "#/components/schemas/PriceEstimate"
+                  basic:
+                    $ref: "#/components/schemas/BasicInfo"
+
+  /api/v1/ai/report:
+    post:
+      summary: Generate AI evaluation report
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryRequest"
+      responses:
+        "200":
+          description: AI-generated vehicle report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleReport"
+
+  /api/v1/user/credits:
+    get:
+      summary: Check user credit balance
+      tags: [User]
+      responses:
+        "200":
+          description: Credit balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditBalance"
+
+  /api/v1/user/consume:
+    post:
+      summary: Deduct credits for a query
+      tags: [User]
+      responses:
+        "200":
+          description: Credit deduction result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  remaining:
+                    type: integer
+
+  /api/v1/user/history:
+    get:
+      summary: Get user query history
+      tags: [User]
+      responses:
+        "200":
+          description: Query history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/QueryHistoryItem"
+
+components:
+  schemas:
+    QueryRequest:
+      type: object
+      required: [plate]
+      properties:
+        plate:
+          type: string
+          example: CPK169
+        locale:
+          type: string
+          example: en
+          default: en
+
+    VehicleReport:
+      type: object
+      properties:
+        plate:
+          type: string
+        cached:
+          type: boolean
+        generated_at:
+          type: string
+          format: date-time
+        basic:
+          $ref: "#/components/schemas/BasicInfo"
+        ownership:
+          $ref: "#/components/schemas/OwnershipInfo"
+        inspection:
+          $ref: "#/components/schemas/InspectionInfo"
+        recalls:
+          $ref: "#/components/schemas/RecallInfo"
+        tax:
+          $ref: "#/components/schemas/TaxInfo"
+        risk:
+          $ref: "#/components/schemas/RiskInfo"
+        price_estimate:
+          $ref: "#/components/schemas/PriceEstimate"
+        condition_inference:
+          $ref: "#/components/schemas/ConditionInference"
+        suitability:
+          $ref: "#/components/schemas/Suitability"
+        ai_summary:
+          type: string
+
+    BasicInfo:
+      type: object
+      properties:
+        plate:
+          type: string
+        vin:
+          type: string
+        make:
+          type: string
+        model:
+          type: string
+        variant:
+          type: string
+        year:
+          type: integer
+        body_type:
+          type: string
+        fuel_type:
+          type: string
+        engine_code:
+          type: string
+        engine_displacement_l:
+          type: number
+        engine_power_hp:
+          type: integer
+        engine_torque_nm:
+          type: integer
+        gearbox_type:
+          type: string
+        gearbox_gears:
+          type: integer
+        drivetrain_type:
+          type: string
+        is_4x4:
+          type: boolean
+        color:
+          type: string
+        seats:
+          type: integer
+        curb_weight_kg:
+          type: integer
+        first_registration:
+          type: string
+        country_origin:
+          type: string
+        mileage_latest:
+          type: integer
+        owner_count:
+          type: integer
+
+    OwnershipInfo:
+      type: object
+      properties:
+        owner_count:
+          type: integer
+        history:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              event:
+                type: string
+
+    InspectionInfo:
+      type: object
+      properties:
+        total_inspections:
+          type: integer
+        last_inspection:
+          type: string
+        last_result:
+          type: string
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/Inspection"
+
+    Inspection:
+      type: object
+      properties:
+        date:
+          type: string
+        mileage_km:
+          type: integer
+        result:
+          type: string
+        notes:
+          type: string
+
+    RecallInfo:
+      type: object
+      properties:
+        total_recalls:
+          type: integer
+        open_recalls:
+          type: integer
+        recalls:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recall"
+
+    Recall:
+      type: object
+      properties:
+        vin:
+          type: string
+        source:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+        fix_available:
+          type: boolean
+
+    TaxInfo:
+      type: object
+      properties:
+        annual_tax_sek:
+          type: integer
+        co2_emission_g_km:
+          type: integer
+        euro_standard:
+          type: string
+
+    RiskInfo:
+      type: object
+      properties:
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        level:
+          type: string
+          enum: [low, medium, high]
+        factors:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+
+    PriceEstimate:
+      type: object
+      properties:
+        min_sek:
+          type: integer
+        max_sek:
+          type: integer
+        median_sek:
+          type: integer
+        currency:
+          type: string
+        source:
+          type: string
+
+    ConditionInference:
+      type: object
+      properties:
+        rating:
+          type: string
+          enum: [excellent, good, fair, poor]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        indicators:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+
+    Suitability:
+      type: object
+      properties:
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        recommendation:
+          type: string
+          enum: [buy, consider, avoid]
+        pros:
+          type: array
+          items:
+            type: string
+        cons:
+          type: array
+          items:
+            type: string
+
+    CreditBalance:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        plan:
+          type: string
+          enum: [free, pay_per_query, monthly, lifetime, dealer]
+        credits:
+          type: integer
+
+    QueryHistoryItem:
+      type: object
+      properties:
+        plate:
+          type: string
+        queried_at:
+          type: string
+          format: date-time
+        cached:
+          type: boolean
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string

@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_PORT=8080
+      - GIN_MODE=release
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=cardeal
+      - DB_PASSWORD=cardeal_secret
+      - DB_NAME=cardeal
+      - DB_SSLMODE=disable
+      - DB_MAX_CONNS=25
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - CACHE_TTL_DAYS=7
+      - AI_PROVIDER=openai
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=gpt-4o
+      - AI_BASE_URL=https://api.openai.com/v1
+      - AI_MAX_TOKENS=4096
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: cardeal
+      POSTGRES_PASSWORD: cardeal_secret
+      POSTGRES_DB: cardeal
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U cardeal" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:
