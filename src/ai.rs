@@ -3,25 +3,101 @@ use serde::{Deserialize, Serialize};
 use crate::config::AiConfig;
 use crate::models::*;
 
-/// System prompt for the vehicle evaluation AI.
-const SYSTEM_PROMPT: &str = r#"You are a professional Swedish used-car evaluator, intimately familiar with Swedish Transport Agency data, vehicle inspection systems, common vehicle defects, dealer practices, market pricing, and risk assessment.
+/// System prompt — produces deep investigative reports like a professional car evaluator.
+const SYSTEM_PROMPT: &str = r#"You are a world-class Swedish used-car intelligence analyst. You have deep expertise in:
+- Swedish Transport Agency (Transportstyrelsen) data interpretation
+- Besiktning (MOT inspection) failure patterns and what they reveal about vehicle condition
+- Mileage fraud detection — spotting inconsistencies between inspection records, service history, and listed mileage
+- Re-listing pattern analysis — when a car keeps appearing on the market, it means something
+- Swedish market pricing — Blocket, Bytbil, Kvdbil auction data
+- Recall severity assessment — which recalls are critical vs cosmetic
+- Ownership pattern analysis — 1-owner vs 7-owner cars tell very different stories
+- Negotiation strategy — how to help buyers get a fair price based on data
 
-You will receive vehicle data in JSON format and must generate a professional evaluation report.
+Your reports must follow this structure:
 
-Requirements:
-1. Respond in the language specified by the "locale" field (e.g., "en" for English, "zh-CN" for Chinese, "sv" for Swedish)
-2. Structure your response clearly with sections
-3. Include: condition inference, risk warnings, price range estimate, suitability analysis, and purchase recommendation
-4. Do NOT simply repeat the raw JSON fields — provide professional interpretation and insight
-5. Tone: professional, objective, and easy to understand
+## 1. TIMELINE ANALYSIS
+Build a chronological timeline from all available data (ownership changes, inspections, recalls, listings).
+Highlight suspicious gaps, rapid transfers, or patterns.
 
-You MUST respond with valid JSON in the following structure:
+## 2. RED FLAG DETECTION
+Identify and explain each concern:
+- Mileage discrepancies between records
+- Failed inspections (besiktning) — what broke and what it implies
+- Multiple re-listings / price drops (market rejection signal)
+- High owner count relative to vehicle age
+- Import history concerns
+Rate overall concern level: 🟢 Clean / 🟡 Caution / 🔴 Warning
+
+## 3. MARKET INTELLIGENCE
+- Current market value range (min / median / max in SEK)
+- How does the asking price compare?
+- Days on market / price drop history if available
+- Similar vehicles for comparison
+
+## 4. CONDITION INFERENCE
+Based on inspection patterns, mileage progression, and ownership history, infer:
+- Engine/drivetrain condition
+- Suspension/brakes condition
+- Body/rust assessment
+- Overall rating: Excellent / Good / Fair / Poor
+- Confidence level (0-100%)
+
+## 5. SUITABILITY & RECOMMENDATION
+- Score 0-100
+- Clear recommendation: BUY / CONSIDER / AVOID
+- Pros and cons list
+- "Use it and resell" strategy assessment
+
+## 6. NEGOTIATION STRATEGY (Premium feature)
+If the asking price is known:
+- Suggested opening offer
+- Counter-offer tactics
+- Key leverage points from the data
+- Predicted settlement range
+
+CRITICAL RULES:
+1. Respond in the language specified by "locale" (zh-CN = Chinese, sv = Swedish, en = English, ar = Arabic, ru = Russian, fa = Persian)
+2. Be direct and opinionated — buyers pay for your expert opinion, not diplomatic hedging
+3. Use data to support every claim
+4. Never repeat raw JSON — interpret and explain what the data MEANS
+5. Include emoji indicators for quick scanning (🟢 🟡 🔴 ✅ ⚠️ ❌)
+
+You MUST return valid JSON in this structure:
 {
   "risk": { "score": <0-100>, "level": "<low|medium|high>", "factors": [], "description": "" },
   "price_estimate": { "min_sek": 0, "max_sek": 0, "median_sek": 0, "currency": "SEK", "source": "" },
   "condition_inference": { "rating": "<excellent|good|fair|poor>", "confidence": 0.0, "indicators": [], "description": "" },
   "suitability": { "score": <0-100>, "recommendation": "<buy|consider|avoid>", "pros": [], "cons": [] },
-  "ai_summary": ""
+  "ai_summary": "<FULL investigative report in markdown format, 300-500 words, in the requested locale language>"
+}"#;
+
+/// System prompt for multi-vehicle comparison.
+const COMPARISON_PROMPT: &str = r#"You are a world-class Swedish used-car intelligence analyst. You will receive data for MULTIPLE vehicles.
+
+Your job is to produce a comparative analysis that helps the buyer choose the best option.
+
+Structure:
+1. COMPARISON TABLE — side-by-side overview of all vehicles (owners, mileage, inspections, price, fuel economy)
+2. INDIVIDUAL ANALYSIS — brief assessment of each vehicle's strengths/weaknesses
+3. RANKING — order from best to worst with clear reasoning
+4. FINAL RECOMMENDATION — which one to buy and why
+5. NEGOTIATION — suggested price and strategy for the recommended vehicle
+
+CRITICAL RULES:
+1. Respond in the language specified by "locale"
+2. Be direct — tell the buyer exactly which car to buy
+3. Include emoji for quick scanning (⭐ ratings, 🟢🔴 flags)
+4. Use tables for easy comparison
+5. Consider total cost of ownership (purchase + fuel + tax + expected repairs)
+
+You MUST return valid JSON:
+{
+  "comparison": [
+    { "plate": "", "rank": 1, "score": 0, "verdict": "" }
+  ],
+  "best_pick": { "plate": "", "reason": "" },
+  "ai_summary": "<FULL comparative analysis in markdown, in the requested locale language>"
 }"#;
 
 /// LLM client for OpenAI-compatible APIs.
@@ -68,6 +144,27 @@ pub struct AiEnrichment {
     pub ai_summary: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComparisonResult {
+    pub comparison: Vec<ComparisonItem>,
+    pub best_pick: BestPick,
+    pub ai_summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComparisonItem {
+    pub plate: String,
+    pub rank: i32,
+    pub score: i32,
+    pub verdict: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BestPick {
+    pub plate: String,
+    pub reason: String,
+}
+
 impl LlmClient {
     pub fn new(cfg: AiConfig) -> Self {
         Self {
@@ -76,25 +173,83 @@ impl LlmClient {
         }
     }
 
-    /// Generate an AI evaluation for a vehicle report.
-    /// Returns None if the API key is not configured.
-    pub async fn evaluate(&self, report: &VehicleReport, locale: &str) -> anyhow::Result<Option<AiEnrichment>> {
+    /// Generate an AI evaluation for a single vehicle.
+    pub async fn evaluate(&self, report: &VehicleReport, listings: &[ListingRow], locale: &str) -> anyhow::Result<Option<AiEnrichment>> {
         if self.cfg.api_key.is_empty() {
             tracing::warn!("AI API key not configured, skipping AI enrichment");
             return Ok(None);
         }
 
         let vehicle_json = serde_json::to_string_pretty(report)?;
+        let listings_json = serde_json::to_string_pretty(listings)?;
+
         let user_prompt = format!(
-            "Please analyze the following vehicle data and generate an evaluation report.\n\nLocale: {}\n\nVehicle Data:\n{}",
-            locale, vehicle_json
+            "Analyze this vehicle and generate a deep investigative report.\n\nLocale: {}\n\nVehicle Data:\n{}\n\nListing History:\n{}",
+            locale, vehicle_json, listings_json
         );
 
+        let content = self.chat(SYSTEM_PROMPT, &user_prompt).await?;
+
+        match serde_json::from_str::<AiEnrichment>(&content) {
+            Ok(enrichment) => Ok(Some(enrichment)),
+            Err(e) => {
+                tracing::warn!("failed to parse AI response as structured JSON: {}", e);
+                Ok(Some(AiEnrichment {
+                    risk: RiskInfo::default(),
+                    price_estimate: PriceEstimate::default(),
+                    condition_inference: ConditionInference::default(),
+                    suitability: Suitability::default(),
+                    ai_summary: content,
+                }))
+            }
+        }
+    }
+
+    /// Compare multiple vehicles and recommend the best one.
+    pub async fn compare(&self, reports: &[VehicleReport], listings: &[Vec<ListingRow>], locale: &str) -> anyhow::Result<Option<ComparisonResult>> {
+        if self.cfg.api_key.is_empty() {
+            tracing::warn!("AI API key not configured, skipping comparison");
+            return Ok(None);
+        }
+
+        let mut data_parts = Vec::new();
+        for (i, report) in reports.iter().enumerate() {
+            let vehicle_json = serde_json::to_string_pretty(report)?;
+            let listing_json = if i < listings.len() {
+                serde_json::to_string_pretty(&listings[i])?
+            } else {
+                "[]".to_string()
+            };
+            data_parts.push(format!("--- Vehicle {} ({}) ---\n{}\n\nListing History:\n{}", i + 1, report.plate, vehicle_json, listing_json));
+        }
+
+        let user_prompt = format!(
+            "Compare these {} vehicles and recommend the best purchase.\n\nLocale: {}\n\n{}",
+            reports.len(), locale, data_parts.join("\n\n")
+        );
+
+        let content = self.chat(COMPARISON_PROMPT, &user_prompt).await?;
+
+        match serde_json::from_str::<ComparisonResult>(&content) {
+            Ok(result) => Ok(Some(result)),
+            Err(e) => {
+                tracing::warn!("failed to parse comparison response: {}", e);
+                Ok(Some(ComparisonResult {
+                    comparison: vec![],
+                    best_pick: BestPick { plate: String::new(), reason: String::new() },
+                    ai_summary: content,
+                }))
+            }
+        }
+    }
+
+    /// Low-level chat completion call.
+    async fn chat(&self, system: &str, user: &str) -> anyhow::Result<String> {
         let req = ChatRequest {
             model: self.cfg.model.clone(),
             messages: vec![
-                ChatMessage { role: "system".into(), content: SYSTEM_PROMPT.into() },
-                ChatMessage { role: "user".into(), content: user_prompt },
+                ChatMessage { role: "system".into(), content: system.into() },
+                ChatMessage { role: "user".into(), content: user.into() },
             ],
             max_tokens: self.cfg.max_tokens,
             temperature: 0.3,
@@ -122,19 +277,6 @@ impl LlmClient {
             .map(|c| c.message.content.clone())
             .unwrap_or_default();
 
-        match serde_json::from_str::<AiEnrichment>(&content) {
-            Ok(enrichment) => Ok(Some(enrichment)),
-            Err(e) => {
-                tracing::warn!("failed to parse AI response as structured JSON: {}", e);
-                // Return a partial enrichment with just the summary
-                Ok(Some(AiEnrichment {
-                    risk: RiskInfo::default(),
-                    price_estimate: PriceEstimate::default(),
-                    condition_inference: ConditionInference::default(),
-                    suitability: Suitability::default(),
-                    ai_summary: content,
-                }))
-            }
-        }
+        Ok(content)
     }
 }

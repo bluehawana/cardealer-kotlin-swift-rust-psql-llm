@@ -75,6 +75,28 @@ pub struct ReportRow {
     pub locale: Option<String>,
 }
 
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct ListingRow {
+    pub id: i32,
+    pub plate: String,
+    pub source: Option<String>,
+    pub seller_type: Option<String>,
+    pub price_sek: Option<i32>,
+    pub mileage_km: Option<i32>,
+    pub listed_at: Option<NaiveDate>,
+    pub delisted_at: Option<NaiveDate>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct OwnershipRow {
+    pub id: i32,
+    pub plate: String,
+    pub date: Option<NaiveDate>,
+    pub event: Option<String>,
+}
+
 // ─── API Response Models ─────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +267,31 @@ pub struct PlateQuery {
 #[derive(Debug, Deserialize)]
 pub struct VinQuery {
     pub vin: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CompareRequest {
+    pub plates: Vec<String>,
+    #[serde(default = "default_locale")]
+    pub locale: String,
+}
+
+/// Free-tier report: shows enough to convince, locks the premium analysis.
+#[derive(Debug, Clone, Serialize)]
+pub struct FreeReport {
+    pub plate: String,
+    pub make: String,
+    pub model: String,
+    pub year: i32,
+    pub fuel_type: String,
+    pub mileage_latest: Option<i32>,
+    pub owner_count: Option<i32>,
+    pub color: Option<String>,
+    pub last_inspection_result: Option<String>,
+    pub last_inspection_date: Option<String>,
+    pub recall_count: usize,
+    pub annual_tax_sek: i32,
+    pub unlock_message: String,
 }
 
 // ─── User Models ─────────────────────────────────────────────────

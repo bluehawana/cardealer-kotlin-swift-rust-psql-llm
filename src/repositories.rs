@@ -33,6 +33,19 @@ pub async fn recent_plates(pool: &PgPool, days: i32) -> anyhow::Result<Vec<Strin
     Ok(rows)
 }
 
+// ─── Ownership Repo ──────────────────────────────────────────────
+
+pub async fn find_ownership_by_plate(pool: &PgPool, plate: &str) -> anyhow::Result<Vec<OwnershipRow>> {
+    let rows = sqlx::query_as::<_, OwnershipRow>(
+        "SELECT id, plate, date, event FROM ownership_history WHERE plate = $1 ORDER BY date ASC",
+    )
+    .bind(plate)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}
+
 // ─── Inspection Repo ─────────────────────────────────────────────
 
 pub async fn find_inspections_by_plate(pool: &PgPool, plate: &str) -> anyhow::Result<Vec<InspectionRow>> {
@@ -97,4 +110,17 @@ pub async fn save_report(pool: &PgPool, report: &VehicleReport, locale: &str) ->
     .await?;
 
     Ok(())
+}
+
+// ─── Listing Repo ────────────────────────────────────────────────
+
+pub async fn find_listings_by_plate(pool: &PgPool, plate: &str) -> anyhow::Result<Vec<ListingRow>> {
+    let rows = sqlx::query_as::<_, ListingRow>(
+        "SELECT id, plate, source, seller_type, price_sek, mileage_km, listed_at, delisted_at, url, notes FROM listings WHERE plate = $1 ORDER BY listed_at DESC",
+    )
+    .bind(plate)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
 }

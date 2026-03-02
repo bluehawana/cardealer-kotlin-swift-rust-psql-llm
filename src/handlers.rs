@@ -17,6 +17,8 @@ pub fn build_router(service: VehicleService) -> Router {
         .route("/healthz", get(healthz))
         // Vehicle endpoints
         .route("/api/v1/vehicles/query", post(query_vehicle))
+        .route("/api/v1/vehicles/free", get(query_free))
+        .route("/api/v1/vehicles/compare", post(compare_vehicles))
         .route("/api/v1/vehicles/basic", get(get_basic))
         .route("/api/v1/vehicles/inspection", get(get_inspection))
         .route("/api/v1/vehicles/recalls", get(get_recalls))
@@ -35,10 +37,28 @@ pub fn build_router(service: VehicleService) -> Router {
 // ─── Health ──────────────────────────────────────────────────────
 
 async fn healthz() -> impl IntoResponse {
-    Json(json!({ "status": "ok" }))
+    Json(json!({ "status": "ok", "service": "CarDeal Vehicle Intelligence API" }))
 }
 
-// ─── Vehicles ────────────────────────────────────────────────────
+// ─── Free Report ─────────────────────────────────────────────────
+
+async fn query_free(
+    State(svc): State<VehicleService>,
+    Query(q): Query<PlateQuery>,
+) -> impl IntoResponse {
+    match svc.query_free(&q.plate).await {
+        Ok(report) => (StatusCode::OK, Json(json!(report))),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(json!(ErrorResponse {
+                error: "vehicle_not_found".into(),
+                message: e.to_string(),
+            })),
+        ),
+    }
+}
+
+// ─── Premium Full Report ─────────────────────────────────────────
 
 async fn query_vehicle(
     State(svc): State<VehicleService>,
@@ -55,6 +75,26 @@ async fn query_vehicle(
         ),
     }
 }
+
+// ─── Multi-Vehicle Comparison ────────────────────────────────────
+
+async fn compare_vehicles(
+    State(svc): State<VehicleService>,
+    Json(req): Json<CompareRequest>,
+) -> impl IntoResponse {
+    match svc.compare_vehicles(&req.plates, &req.locale).await {
+        Ok(result) => (StatusCode::OK, Json(json!(result))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!(ErrorResponse {
+                error: "comparison_failed".into(),
+                message: e.to_string(),
+            })),
+        ),
+    }
+}
+
+// ─── Modular Endpoints ──────────────────────────────────────────
 
 async fn get_basic(
     State(svc): State<VehicleService>,

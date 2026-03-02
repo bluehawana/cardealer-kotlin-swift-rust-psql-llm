@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sqlx::PgPool;
 
-use crate::ai::LlmClient;
+use crate::ai::{ComparisonResult, LlmClient};
 use crate::cache::RedisCache;
 use crate::models::*;
 use crate::repositories;
@@ -19,7 +19,7 @@ impl VehicleService {
         Self { pool, cache, llm }
     }
 
-    /// Full vehicle query: cache → DB → external → AI → cache → return.
+    /// Full premium vehicle query: cache → DB → AI enrichment → cache → return.
     pub async fn query_vehicle(&self, plate: &str, locale: &str) -> anyhow::Result<VehicleReport> {
         let plate = plate.to_uppercase().trim().to_string();
 
@@ -46,15 +46,19 @@ impl VehicleService {
             return Ok(report);
         }
 
-        // Step 3: Fetch vehicle data from DB
+        // Step 3: Fetch vehicle data from DB (in production: external API → DB)
         let vehicle = repositories::find_vehicle_by_plate(&self.pool, &plate)
             .await?
             .ok_or_else(|| anyhow::anyhow!(
-                "Vehicle not found: {} (external API integration pending)", plate
+                "Vehicle not found: {} — external API integration pending", plate
             ))?;
 
-        // Step 4: Gather related data
+        // Step 4: Gather all related data
         let inspections = repositories::find_inspections_by_plate(&self.pool, &plate)
+            .await
+            .unwrap_or_default();
+
+        let ownership = repositories::find_ownership_by_plate(&self.pool, &plate)
             .await
             .unwrap_or_default();
 
@@ -66,11 +70,15 @@ impl VehicleService {
             vec![]
         };
 
-        // Step 5: Build report
-        let mut report = self.build_report(&vehicle, &inspections, &recalls);
+        let listings = repositories::find_listings_by_plate(&self.pool, &plate)
+            .await
+            .unwrap_or_default();
 
-        // Step 6: AI enrichment
-        match self.llm.evaluate(&report, locale).await {
+        // Step 5: Build base report
+        let mut report = self.build_report(&vehicle, &ownership, &inspections, &recalls);
+
+        // Step 6: AI enrichment — deep investigative analysis
+        match self.llm.evaluate(&report, &listings, locale).await {
             Ok(Some(enrichment)) => {
                 report.risk = enrichment.risk;
                 report.price_estimate = enrichment.price_estimate;
@@ -98,6 +106,87 @@ impl VehicleService {
         }
 
         Ok(report)
+    }
+
+    /// Free-tier report: basic info only, enough to hook but not the full analysis.
+    pub async fn query_free(&self, plate: &str) -> anyhow::Result<FreeReport> {
+        let plate = plate.to_uppercase().trim().to_string();
+
+        let vehicle = repositories::find_vehicle_by_plate(&self.pool, &plate)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Vehicle not found: {}", plate))?;
+
+        let inspections = repositories::find_inspections_by_plate(&self.pool, &plate)
+            .await
+            .unwrap_or_default();
+
+        let recall_count = if let Some(ref vin) = vehicle.vin {
+            repositories::find_recalls_by_vin(&self.pool, vin)
+                .await
+                .map(|r| r.len())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        Ok(FreeReport {
+            plate: vehicle.plate,
+            make: vehicle.make.unwrap_or_default(),
+            model: vehicle.model.unwrap_or_default(),
+            year: vehicle.year.unwrap_or(0),
+            fuel_type: vehicle.fuel_type.unwrap_or_default(),
+            mileage_latest: vehicle.mileage_latest,
+            owner_count: vehicle.owner_count,
+            color: vehicle.color,
+            last_inspection_result: inspections.first().and_then(|i| i.result.clone()),
+            last_inspection_date: inspections.first().and_then(|i| i.date.map(|d| d.to_string())),
+            recall_count,
+            annual_tax_sek: vehicle.tax_per_year.unwrap_or(0),
+            unlock_message: "🔒 Unlock the full report for AI analysis, risk score, price estimate, negotiation strategy, and expert recommendation.".into(),
+        })
+    }
+
+    /// Compare multiple vehicles side-by-side with AI recommendation.
+    pub async fn compare_vehicles(&self, plates: &[String], locale: &str) -> anyhow::Result<ComparisonResult> {
+        if plates.is_empty() || plates.len() > 5 {
+            anyhow::bail!("Provide 2-5 plates for comparison");
+        }
+
+        let mut reports = Vec::new();
+        let mut all_listings = Vec::new();
+
+        for plate in plates {
+            let report = self.query_vehicle(plate, locale).await?;
+            let listings = repositories::find_listings_by_plate(&self.pool, &plate.to_uppercase())
+                .await
+                .unwrap_or_default();
+            reports.push(report);
+            all_listings.push(listings);
+        }
+
+        match self.llm.compare(&reports, &all_listings, locale).await? {
+            Some(result) => Ok(result),
+            None => {
+                // Fallback: basic comparison without AI
+                let comparison = reports.iter().enumerate().map(|(i, r)| {
+                    crate::ai::ComparisonItem {
+                        plate: r.plate.clone(),
+                        rank: (i + 1) as i32,
+                        score: 0,
+                        verdict: format!("{} {} {}", r.basic.make, r.basic.model, r.basic.year),
+                    }
+                }).collect();
+
+                Ok(ComparisonResult {
+                    comparison,
+                    best_pick: crate::ai::BestPick {
+                        plate: reports.first().map(|r| r.plate.clone()).unwrap_or_default(),
+                        reason: "AI analysis unavailable — configure AI_API_KEY for recommendations".into(),
+                    },
+                    ai_summary: "AI comparison unavailable. Configure AI_API_KEY for detailed analysis.".into(),
+                })
+            }
+        }
     }
 
     /// Get only basic vehicle info.
@@ -135,6 +224,7 @@ impl VehicleService {
     fn build_report(
         &self,
         vehicle: &VehicleRow,
+        ownership: &[OwnershipRow],
         inspections: &[InspectionRow],
         recalls: &[RecallRow],
     ) -> VehicleReport {
@@ -143,6 +233,11 @@ impl VehicleService {
         let recall_items: Vec<RecallItem> = recalls.iter().map(|r| r.to_item()).collect();
         let open_recalls = recall_items.iter().filter(|r| !r.fix_available).count();
 
+        let ownership_events: Vec<OwnershipEvent> = ownership.iter().map(|o| OwnershipEvent {
+            date: o.date.map(|d| d.to_string()).unwrap_or_default(),
+            event: o.event.clone().unwrap_or_default(),
+        }).collect();
+
         VehicleReport {
             plate: vehicle.plate.clone(),
             cached: false,
@@ -150,7 +245,7 @@ impl VehicleService {
             basic,
             ownership: OwnershipInfo {
                 owner_count: vehicle.owner_count.unwrap_or(0),
-                history: vec![],
+                history: ownership_events,
             },
             inspection: InspectionInfo {
                 total_inspections: insp_items.len(),
