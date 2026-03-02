@@ -2,6 +2,7 @@ mod ai;
 mod cache;
 mod config;
 mod db;
+mod external;
 mod handlers;
 mod models;
 mod repositories;
@@ -35,8 +36,11 @@ async fn main() -> anyhow::Result<()> {
     // Initialize AI client
     let llm = ai::LlmClient::new(cfg.ai.clone());
 
+    // Initialize external data provider (Biluppgifter.se / Transportstyrelsen)
+    let external = external::VehicleDataProvider::new(&cfg);
+
     // Build service & router
-    let service = services::VehicleService::new(pool, redis_cache, llm);
+    let service = services::VehicleService::new(pool, redis_cache, llm, external);
     let app = handlers::build_router(service)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());

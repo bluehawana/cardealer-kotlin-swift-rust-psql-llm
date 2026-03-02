@@ -3,6 +3,7 @@ use sqlx::PgPool;
 
 use crate::ai::{ComparisonResult, LlmClient};
 use crate::cache::RedisCache;
+use crate::external::VehicleDataProvider;
 use crate::models::*;
 use crate::repositories;
 
@@ -12,14 +13,15 @@ pub struct VehicleService {
     pool: PgPool,
     cache: RedisCache,
     llm: LlmClient,
+    external: VehicleDataProvider,
 }
 
 impl VehicleService {
-    pub fn new(pool: PgPool, cache: RedisCache, llm: LlmClient) -> Self {
-        Self { pool, cache, llm }
+    pub fn new(pool: PgPool, cache: RedisCache, llm: LlmClient, external: VehicleDataProvider) -> Self {
+        Self { pool, cache, llm, external }
     }
 
-    /// Full premium vehicle query: cache → DB → AI enrichment → cache → return.
+    /// Full premium vehicle query: cache → DB → external API → AI enrichment → cache → return.
     pub async fn query_vehicle(&self, plate: &str, locale: &str) -> anyhow::Result<VehicleReport> {
         let plate = plate.to_uppercase().trim().to_string();
 
@@ -46,12 +48,22 @@ impl VehicleService {
             return Ok(report);
         }
 
-        // Step 3: Fetch vehicle data from DB (in production: external API → DB)
-        let vehicle = repositories::find_vehicle_by_plate(&self.pool, &plate)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!(
-                "Vehicle not found: {} — external API integration pending", plate
-            ))?;
+        // Step 3: If not in DB, fetch from external APIs (Biluppgifter / Transportstyrelsen)
+        let vehicle = match repositories::find_vehicle_by_plate(&self.pool, &plate).await? {
+            Some(v) => v,
+            None => {
+                tracing::info!(plate = %plate, "vehicle not in DB, fetching from external API");
+                let fetch_result = self.external.fetch_and_store(&self.pool, &plate).await?;
+
+                if fetch_result.stolen {
+                    tracing::warn!(plate = %plate, "⚠️ VEHICLE REPORTED STOLEN");
+                }
+
+                repositories::find_vehicle_by_plate(&self.pool, &plate)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("Vehicle {} not found after external fetch", plate))?
+            }
+        };
 
         // Step 4: Gather all related data
         let inspections = repositories::find_inspections_by_plate(&self.pool, &plate)
@@ -112,9 +124,15 @@ impl VehicleService {
     pub async fn query_free(&self, plate: &str) -> anyhow::Result<FreeReport> {
         let plate = plate.to_uppercase().trim().to_string();
 
-        let vehicle = repositories::find_vehicle_by_plate(&self.pool, &plate)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Vehicle not found: {}", plate))?;
+        let vehicle = match repositories::find_vehicle_by_plate(&self.pool, &plate).await? {
+            Some(v) => v,
+            None => {
+                self.external.fetch_and_store(&self.pool, &plate).await?;
+                repositories::find_vehicle_by_plate(&self.pool, &plate)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("Vehicle not found: {}", plate))?
+            }
+        };
 
         let inspections = repositories::find_inspections_by_plate(&self.pool, &plate)
             .await
