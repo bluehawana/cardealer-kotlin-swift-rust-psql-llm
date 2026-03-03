@@ -21,6 +21,7 @@ spec:
       containers:
         - name: api
           image: ghcr.io/bluehawana/cardealer-kotlin-swift-rust-psql-llm:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               name: http
