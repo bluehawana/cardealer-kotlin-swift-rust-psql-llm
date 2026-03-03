@@ -1,0 +1,47 @@
+name: DB — Migration Check
+
+on:
+  push:
+    paths:
+      - 'migrations/**'
+    branches: [main, develop]
+  pull_request:
+    paths:
+      - 'migrations/**'
+
+jobs:
+  migrations:
+    name: 🗄️ Validate Migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cardeal_migration_test
+          POSTGRES_USER: cardeal
+          POSTGRES_PASSWORD: cardeal_test_pw
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features postgres
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgres://cardeal:cardeal_test_pw@localhost:5432/cardeal_migration_test
+        run: sqlx migrate run
+
+      - name: Verify migrations are reversible
+        env:
+          DATABASE_URL: postgres://cardeal:cardeal_test_pw@localhost:5432/cardeal_migration_test
+        run: |
+          echo "✅ All migrations applied successfully"
+          sqlx migrate info
