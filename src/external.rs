@@ -287,25 +287,58 @@ impl VehicleDataProvider {
     }
 
     /// Fetch basic data from Transportstyrelsen public web page.
+    /// Uses the public "Fordonsuppgifter" service — free, no API key needed.
     async fn fetch_from_transportstyrelsen(&self, plate: &str) -> anyhow::Result<TransportstyrelsenData> {
-        let url = "https://fu-regnr.transportstyrelsen.se/externalresources/LicensePlate";
+        // Transportstyrelsen has a public form at this URL
+        let url = "https://fordonsuppgifter.transportstyrelsen.se/api/vehicle";
 
+        // Try the API endpoint first
         let resp = self
             .http
-            .post(url)
+            .get(&format!("{}?registrationNumber={}", url, plate))
+            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+            .header("Accept", "text/html,application/xhtml+xml,application/json")
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                let body = r.text().await?;
+                // Try JSON parse first (if they have a JSON endpoint)
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&body) {
+                    return Ok(parse_json_response(&data, plate));
+                }
+                // Fall back to HTML parsing
+                return parse_transportstyrelsen_html(&body, plate);
+            }
+            _ => {}
+        }
+
+        // Fallback: try the classic form submission
+        let form_url = "https://fu-regnr.transportstyrelsen.se/externalresources/LicensePlate";
+        let resp = self
+            .http
+            .post(form_url)
+            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
             .form(&[("regnr", plate)])
             .send()
             .await?;
 
         if !resp.status().is_success() {
-            anyhow::bail!("Transportstyrelsen returned status {}", resp.status());
+            anyhow::bail!(
+                "Transportstyrelsen returned status {}. The public lookup may be temporarily unavailable. \
+                Configure BILUPPGIFTER_API_KEY for reliable access.",
+                resp.status()
+            );
         }
 
         let html = resp.text().await?;
 
-        // Parse the HTML response for vehicle data
-        let data = parse_transportstyrelsen_html(&html, plate)?;
-        Ok(data)
+        if html.len() < 200 || html.contains("Inga uppgifter") || html.contains("hittades inte") {
+            anyhow::bail!("No vehicle found for plate {} on Transportstyrelsen", plate);
+        }
+
+        parse_transportstyrelsen_html(&html, plate)
     }
 
     /// Store Transportstyrelsen data into database.
@@ -317,13 +350,25 @@ impl VehicleDataProvider {
     ) -> anyhow::Result<FetchResult> {
         sqlx::query(
             r#"INSERT INTO vehicles (plate, make, model, year, fuel_type, color,
-                curb_weight_kg, owner_count, co2_emission, euro_standard, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                curb_weight_kg, gross_weight_kg, owner_count, co2_emission, euro_standard,
+                tax_per_year, engine_power_hp, engine_displacement_l,
+                first_registration, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::DATE, NOW())
             ON CONFLICT (plate) DO UPDATE SET
                 make = COALESCE(EXCLUDED.make, vehicles.make),
                 model = COALESCE(EXCLUDED.model, vehicles.model),
                 year = COALESCE(EXCLUDED.year, vehicles.year),
                 fuel_type = COALESCE(EXCLUDED.fuel_type, vehicles.fuel_type),
+                color = COALESCE(EXCLUDED.color, vehicles.color),
+                curb_weight_kg = COALESCE(EXCLUDED.curb_weight_kg, vehicles.curb_weight_kg),
+                gross_weight_kg = COALESCE(EXCLUDED.gross_weight_kg, vehicles.gross_weight_kg),
+                owner_count = COALESCE(EXCLUDED.owner_count, vehicles.owner_count),
+                co2_emission = COALESCE(EXCLUDED.co2_emission, vehicles.co2_emission),
+                euro_standard = COALESCE(EXCLUDED.euro_standard, vehicles.euro_standard),
+                tax_per_year = COALESCE(EXCLUDED.tax_per_year, vehicles.tax_per_year),
+                engine_power_hp = COALESCE(EXCLUDED.engine_power_hp, vehicles.engine_power_hp),
+                engine_displacement_l = COALESCE(EXCLUDED.engine_displacement_l, vehicles.engine_displacement_l),
+                first_registration = COALESCE(EXCLUDED.first_registration, vehicles.first_registration),
                 updated_at = NOW()
             "#,
         )
@@ -334,11 +379,33 @@ impl VehicleDataProvider {
         .bind(&data.fuel_type)
         .bind(&data.color)
         .bind(data.curb_weight_kg)
+        .bind(data.gross_weight_kg)
         .bind(data.owner_count)
         .bind(data.co2_emission)
         .bind(&data.euro_standard)
+        .bind(data.tax_per_year)
+        .bind(data.engine_power_hp)
+        .bind(data.engine_displacement_l)
+        .bind(&data.first_registration)
         .execute(pool)
         .await?;
+
+        // Store inspection if available
+        if let Some(ref result) = data.inspection_result {
+            if let Some(ref date) = data.inspection_date {
+                sqlx::query(
+                    "INSERT INTO inspections (plate, date, mileage_km, result, notes) VALUES ($1, $2::DATE, $3, $4, $5) ON CONFLICT DO NOTHING"
+                )
+                .bind(plate)
+                .bind(date)
+                .bind(data.inspection_mileage)
+                .bind(result)
+                .bind(&data.inspection_notes)
+                .execute(pool)
+                .await
+                .ok();
+            }
+        }
 
         Ok(FetchResult {
             source: "transportstyrelsen.se".into(),
@@ -367,44 +434,131 @@ pub struct TransportstyrelsenData {
     pub fuel_type: Option<String>,
     pub color: Option<String>,
     pub curb_weight_kg: Option<i32>,
+    pub gross_weight_kg: Option<i32>,
     pub owner_count: Option<i32>,
     pub co2_emission: Option<i32>,
     pub euro_standard: Option<String>,
+    pub tax_per_year: Option<i32>,
+    pub engine_power_hp: Option<i32>,
+    pub engine_displacement_l: Option<f64>,
+    pub first_registration: Option<String>,
+    pub inspection_result: Option<String>,
+    pub inspection_date: Option<String>,
+    pub inspection_mileage: Option<i32>,
+    pub inspection_notes: Option<String>,
+}
+
+/// Parse JSON response from Transportstyrelsen API.
+fn parse_json_response(data: &serde_json::Value, _plate: &str) -> TransportstyrelsenData {
+    let s = |key: &str| data.get(key).and_then(|v| v.as_str()).map(|s| s.to_string());
+    let i = |key: &str| data.get(key).and_then(|v| v.as_i64()).map(|n| n as i32);
+    let f = |key: &str| data.get(key).and_then(|v| v.as_f64());
+
+    TransportstyrelsenData {
+        make: s("make").or_else(|| s("fabrikat")),
+        model: s("model").or_else(|| s("handelsbenamning")),
+        year: i("modelYear").or(i("arsmodell")),
+        fuel_type: s("fuelType").or_else(|| s("drivmedel")),
+        color: s("color").or_else(|| s("farg")),
+        curb_weight_kg: i("curbWeight").or(i("tjanstevikt")),
+        gross_weight_kg: i("grossWeight").or(i("totalvikt")),
+        owner_count: i("numberOfOwners"),
+        co2_emission: i("co2"),
+        euro_standard: s("euroClass").or_else(|| s("miljoklass")),
+        tax_per_year: i("annualTax").or(i("fordonsskatt")),
+        engine_power_hp: i("enginePower"),
+        engine_displacement_l: f("engineDisplacement"),
+        first_registration: s("firstRegistrationDate"),
+        inspection_result: s("inspectionResult"),
+        inspection_date: s("lastInspectionDate"),
+        inspection_mileage: i("inspectionOdometer"),
+        inspection_notes: s("inspectionNotes"),
+    }
 }
 
 /// Parse Transportstyrelsen HTML response to extract vehicle data.
 fn parse_transportstyrelsen_html(html: &str, _plate: &str) -> anyhow::Result<TransportstyrelsenData> {
-    // The Transportstyrelsen page returns a table with vehicle data.
-    // We parse key fields from the HTML using simple string matching.
-    // This is a basic parser; for production, use a proper HTML parser crate.
+    let extract = |labels: &[&str]| -> Option<String> {
+        for label in labels {
+            if let Some(pos) = html.find(label) {
+                let after = &html[pos + label.len()..];
+                // Try different value patterns: <strong>, <td>, <span>, <dd>, plain text after >
+                for tag_end in ['>', ':'] {
+                    if let Some(start) = after.find(tag_end) {
+                        let rest = &after[start + 1..];
+                        // Skip whitespace and nested tags
+                        let rest = rest.trim_start();
+                        if rest.starts_with('<') {
+                            if let Some(inner_start) = rest.find('>') {
+                                let inner = &rest[inner_start + 1..];
+                                if let Some(end) = inner.find('<') {
+                                    let val = inner[..end].trim();
+                                    if !val.is_empty() && val != "-" {
+                                        return Some(val.to_string());
+                                    }
+                                }
+                            }
+                        } else if let Some(end) = rest.find('<') {
+                            let val = rest[..end].trim();
+                            if !val.is_empty() && val != "-" {
+                                return Some(val.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    };
 
-    let extract = |label: &str| -> Option<String> {
-        html.find(label).and_then(|pos| {
-            let after = &html[pos + label.len()..];
-            // Look for the next value in a <strong> or <td> tag
-            after.find('>').and_then(|start| {
-                let rest = &after[start + 1..];
-                rest.find('<').map(|end| rest[..end].trim().to_string())
-            })
+    let parse_int = |labels: &[&str]| -> Option<i32> {
+        extract(labels).and_then(|s| {
+            s.replace(" kg", "")
+                .replace(" SEK", "")
+                .replace(" g/km", "")
+                .replace(" kW", "")
+                .replace('\u{a0}', "")
+                .replace(' ', "")
+                .trim()
+                .parse::<i32>()
+                .ok()
         })
     };
 
-    let year = extract("Årsmodell").and_then(|s| s.parse::<i32>().ok())
-        .or_else(|| extract("Model year").and_then(|s| s.parse::<i32>().ok()));
+    let make = extract(&["Fabrikat", "Make", "Tillverkare"]);
+    let model = extract(&["Handelsbenämning", "Handelsbeteckning", "Model", "Modell"]);
 
-    let weight = extract("Tjänstevikt").and_then(|s| {
-        s.replace(" kg", "").replace('\u{a0}', "").trim().parse::<i32>().ok()
-    });
+    if make.is_none() && model.is_none() {
+        anyhow::bail!("Could not parse vehicle data from Transportstyrelsen response");
+    }
+
+    // Convert kW to HP if power is in kW
+    let power_kw = parse_int(&["Motoreffekt", "Engine power", "Effekt"]);
+    let power_hp = power_kw.map(|kw| (kw as f64 * 1.36) as i32);
+
+    // Engine displacement
+    let displacement_cc = parse_int(&["Slagvolym", "Displacement", "Cylindervolym"]);
+    let displacement_l = displacement_cc.map(|cc| cc as f64 / 1000.0);
 
     Ok(TransportstyrelsenData {
-        make: extract("Fabrikat").or_else(|| extract("Make")),
-        model: extract("Handelsbenämning").or_else(|| extract("Model")),
-        year,
-        fuel_type: extract("Drivmedel").or_else(|| extract("Fuel")),
-        color: extract("Färg").or_else(|| extract("Color")),
-        curb_weight_kg: weight,
-        owner_count: None, // Not available from public page
-        co2_emission: extract("CO2").and_then(|s| s.replace(" g/km", "").trim().parse::<i32>().ok()),
-        euro_standard: extract("Miljöklass").or_else(|| extract("Euro")),
+        make,
+        model,
+        year: parse_int(&["Årsmodell", "Model year", "Arsmodell"]),
+        fuel_type: extract(&["Drivmedel", "Fuel", "Bränsle"]),
+        color: extract(&["Färg", "Color", "Kulör"]),
+        curb_weight_kg: parse_int(&["Tjänstevikt", "Curb weight", "Tjanstevikt"]),
+        gross_weight_kg: parse_int(&["Totalvikt", "Gross weight"]),
+        owner_count: parse_int(&["Antal ägare", "Number of owners", "Antal agare"]),
+        co2_emission: parse_int(&["CO2", "Koldioxid"]),
+        euro_standard: extract(&["Miljöklass", "Euro class", "Miljoklass"]),
+        tax_per_year: parse_int(&["Fordonsskatt", "Vehicle tax", "Skatt"]),
+        engine_power_hp: power_hp,
+        engine_displacement_l: displacement_l,
+        first_registration: extract(&["Första registrering", "First registration", "Forsta registrering"]),
+        inspection_result: extract(&["Besiktningsresultat", "Inspection result", "Senaste besiktning"]),
+        inspection_date: extract(&["Besiktningsdatum", "Inspection date", "Senast godkänd"]),
+        inspection_mileage: parse_int(&["Mätarställning", "Odometer"]),
+        inspection_notes: extract(&["Anmärkningar", "Remarks"]),
     })
 }
+
