@@ -13,6 +13,7 @@ RUN rm -rf src
 
 # Build actual application
 COPY . .
+RUN touch src/main.rs
 ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
