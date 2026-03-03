@@ -199,10 +199,10 @@ Premium API with your branding. White-label reports for your customers.
 | Plan | Price | Queries | Best For |
 |------|-------|---------|----------|
 | 🆓 **Free** | 0 SEK | 3 searches | Try it out |
-| 💳 **Per Query** | 29 SEK/search | Pay as you go | Occasional buyers |
-| 📅 **Monthly** | 199 SEK/month | Unlimited | Active buyers & sellers |
-| ♾️ **Lifetime** | 1,999 SEK | Unlimited forever | Enthusiasts & small dealers |
-| 🏢 **Dealer** | Custom | Unlimited + API | Businesses & enterprises |
+| 💳 **Per Query** | 5 SEK/search | Pay as you go | Private buyers |
+| 📅 **Monthly** | 49 SEK/month | 30 searches/month | Active buyers & sellers |
+| ♾️ **Permanent** | 499 SEK (one-time) | Unlimited forever | Enthusiasts & small dealers |
+| 🏢 **Professional** | Custom | Unlimited + API | Dealers, workshops, insurance |
 
 ---
 

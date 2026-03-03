@@ -98,10 +98,10 @@ Skriv in ett registreringsnummer. Få allt.
 | Plan | Pris | Sökningar | Bäst för |
 |------|------|-----------|----------|
 | 🆓 **Gratis** | 0 SEK | 3 sökningar | Testa |
-| 💳 **Per sökning** | 29 SEK/st | Betala per gång | Enstaka köpare |
-| 📅 **Månadsprenumeration** | 199 SEK/mån | Obegränsat | Aktiva köpare & säljare |
-| ♾️ **Livstid** | 1 999 SEK | Obegränsat för alltid | Entusiaster & småhandlare |
-| 🏢 **Företag** | Offert | Obegränsat + API | Företag & storhandlare |
+| 💳 **Per sökning** | 5 SEK/st | Betala per gång | Privata köpare |
+| 📅 **Månadsprenumeration** | 49 SEK/mån | 30 sökningar/mån | Aktiva köpare & säljare |
+| ♾️ **Permanent** | 499 SEK (engångs) | Obegränsat för alltid | Entusiaster & småhandlare |
+| 🏢 **Professionell** | Offert | Obegränsat + API | Handlare, verkstäder, försäkring |
 
 ---
 
