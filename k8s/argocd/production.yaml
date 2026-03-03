@@ -1,0 +1,35 @@
+# Argo CD Application — Production
+# Apply this to your Argo CD cluster:
+#   kubectl apply -f k8s/argocd/production.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cardeal-production
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: cardeal
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/bluehawana/cardealer-kotlin-swift-rust-psql-llm.git
+    targetRevision: main
+    path: k8s/overlays/production
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cardeal
+
+  syncPolicy:
+    # Production requires MANUAL sync for safety
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

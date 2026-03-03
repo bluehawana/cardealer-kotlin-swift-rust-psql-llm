@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cardeal
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - database.yaml
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/managed-by: argocd
+  app.kubernetes.io/part-of: cardeal
+
+images:
+  - name: ghcr.io/bluehawana/cardealer-kotlin-swift-rust-psql-llm
+    newTag: latest

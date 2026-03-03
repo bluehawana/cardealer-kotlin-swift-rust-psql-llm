@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cardeal
+
+resources:
+  - ../../base
+
+# Override image tag for staging
+images:
+  - name: ghcr.io/bluehawana/cardealer-kotlin-swift-rust-psql-llm
+    newTag: latest
+
+# Staging-specific patches
+patches:
+  - target:
+      kind: Deployment
+      name: cardeal-api
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Ingress
+      name: cardeal-ingress
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: staging-api.cardeal.se
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: staging-api.cardeal.se

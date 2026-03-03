@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cardeal-config
+  namespace: cardeal
+data:
+  SERVER_PORT: "8080"
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_USER: "cardeal"
+  DB_NAME: "cardeal"
+  DB_SSLMODE: "disable"
+  DB_MAX_CONNS: "25"
+  REDIS_ADDR: "redis:6379"
+  REDIS_DB: "0"
+  CACHE_TTL_DAYS: "7"
+  AI_PROVIDER: "openai"
+  AI_MODEL: "gpt-4o"
+  AI_BASE_URL: "https://api.openai.com/v1"
+  AI_MAX_TOKENS: "4096"
+  BILUPPGIFTER_BASE_URL: "https://api.biluppgifter.se/api/v1"
+  RUST_LOG: "cardeal=info,tower_http=info"

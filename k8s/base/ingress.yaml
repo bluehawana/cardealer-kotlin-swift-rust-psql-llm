@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cardeal-ingress
+  namespace: cardeal
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  labels:
+    app.kubernetes.io/name: cardeal-ingress
+    app.kubernetes.io/part-of: cardeal
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.cardeal.se
+      secretName: cardeal-tls
+  rules:
+    - host: api.cardeal.se
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cardeal-api
+                port:
+                  name: http

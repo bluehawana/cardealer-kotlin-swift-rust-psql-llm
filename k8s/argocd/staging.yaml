@@ -1,0 +1,37 @@
+# Argo CD Application — Staging
+# Apply this to your Argo CD cluster:
+#   kubectl apply -f k8s/argocd/staging.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cardeal-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: cardeal
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/bluehawana/cardealer-kotlin-swift-rust-psql-llm.git
+    targetRevision: main
+    path: k8s/overlays/staging
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cardeal
+
+  syncPolicy:
+    automated:
+      prune: true        # Delete resources removed from git
+      selfHeal: true      # Auto-fix manual changes in cluster
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
