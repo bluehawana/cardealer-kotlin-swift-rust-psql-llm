@@ -39,6 +39,7 @@ impl RedisCache {
     }
 
     /// Delete a cached vehicle report.
+    #[allow(dead_code)]
     pub async fn delete(&self, plate: &str) -> anyhow::Result<()> {
         let key = format!("vehicle:{}", plate);
         let mut conn = self.conn.clone();

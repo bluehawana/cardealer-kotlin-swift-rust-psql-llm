@@ -4,7 +4,10 @@ use crate::models::*;
 
 // ─── Vehicle Repo ────────────────────────────────────────────────
 
-pub async fn find_vehicle_by_plate(pool: &PgPool, plate: &str) -> anyhow::Result<Option<VehicleRow>> {
+pub async fn find_vehicle_by_plate(
+    pool: &PgPool,
+    plate: &str,
+) -> anyhow::Result<Option<VehicleRow>> {
     let row = sqlx::query_as::<_, VehicleRow>(
         r#"SELECT id, plate, vin, make, model, variant, year, body_type, fuel_type,
             engine_code, engine_displacement_l, engine_power_hp, engine_torque_nm,
@@ -22,6 +25,7 @@ pub async fn find_vehicle_by_plate(pool: &PgPool, plate: &str) -> anyhow::Result
     Ok(row)
 }
 
+#[allow(dead_code)]
 pub async fn recent_plates(pool: &PgPool, days: i32) -> anyhow::Result<Vec<String>> {
     let rows = sqlx::query_scalar::<_, String>(
         "SELECT plate FROM vehicles WHERE updated_at > NOW() - ($1 || ' days')::INTERVAL ORDER BY updated_at DESC",
@@ -35,7 +39,10 @@ pub async fn recent_plates(pool: &PgPool, days: i32) -> anyhow::Result<Vec<Strin
 
 // ─── Ownership Repo ──────────────────────────────────────────────
 
-pub async fn find_ownership_by_plate(pool: &PgPool, plate: &str) -> anyhow::Result<Vec<OwnershipRow>> {
+pub async fn find_ownership_by_plate(
+    pool: &PgPool,
+    plate: &str,
+) -> anyhow::Result<Vec<OwnershipRow>> {
     let rows = sqlx::query_as::<_, OwnershipRow>(
         "SELECT id, plate, date, event FROM ownership_history WHERE plate = $1 ORDER BY date ASC",
     )
@@ -48,7 +55,10 @@ pub async fn find_ownership_by_plate(pool: &PgPool, plate: &str) -> anyhow::Resu
 
 // ─── Inspection Repo ─────────────────────────────────────────────
 
-pub async fn find_inspections_by_plate(pool: &PgPool, plate: &str) -> anyhow::Result<Vec<InspectionRow>> {
+pub async fn find_inspections_by_plate(
+    pool: &PgPool,
+    plate: &str,
+) -> anyhow::Result<Vec<InspectionRow>> {
     let rows = sqlx::query_as::<_, InspectionRow>(
         "SELECT id, plate, date, mileage_km, result, notes FROM inspections WHERE plate = $1 ORDER BY date DESC",
     )
@@ -74,7 +84,10 @@ pub async fn find_recalls_by_vin(pool: &PgPool, vin: &str) -> anyhow::Result<Vec
 
 // ─── Report Repo ─────────────────────────────────────────────────
 
-pub async fn find_latest_report(pool: &PgPool, plate: &str) -> anyhow::Result<Option<VehicleReport>> {
+pub async fn find_latest_report(
+    pool: &PgPool,
+    plate: &str,
+) -> anyhow::Result<Option<VehicleReport>> {
     let row = sqlx::query_as::<_, ReportRow>(
         "SELECT id, plate, summary_json, risk_score, price_min, price_max, locale FROM reports WHERE plate = $1 ORDER BY id DESC LIMIT 1",
     )
@@ -95,7 +108,11 @@ pub async fn find_latest_report(pool: &PgPool, plate: &str) -> anyhow::Result<Op
     }
 }
 
-pub async fn save_report(pool: &PgPool, report: &VehicleReport, locale: &str) -> anyhow::Result<()> {
+pub async fn save_report(
+    pool: &PgPool,
+    report: &VehicleReport,
+    locale: &str,
+) -> anyhow::Result<()> {
     let json = serde_json::to_value(report)?;
     sqlx::query(
         "INSERT INTO reports (plate, summary_json, risk_score, price_min, price_max, locale) VALUES ($1, $2, $3, $4, $5, $6)",

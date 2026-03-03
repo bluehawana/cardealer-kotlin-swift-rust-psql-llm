@@ -17,8 +17,18 @@ pub struct VehicleService {
 }
 
 impl VehicleService {
-    pub fn new(pool: PgPool, cache: RedisCache, llm: LlmClient, external: VehicleDataProvider) -> Self {
-        Self { pool, cache, llm, external }
+    pub fn new(
+        pool: PgPool,
+        cache: RedisCache,
+        llm: LlmClient,
+        external: VehicleDataProvider,
+    ) -> Self {
+        Self {
+            pool,
+            cache,
+            llm,
+            external,
+        }
     }
 
     /// Full premium vehicle query: cache → DB → external API → AI enrichment → cache → return.
@@ -61,7 +71,9 @@ impl VehicleService {
 
                 repositories::find_vehicle_by_plate(&self.pool, &plate)
                     .await?
-                    .ok_or_else(|| anyhow::anyhow!("Vehicle {} not found after external fetch", plate))?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Vehicle {} not found after external fetch", plate)
+                    })?
             }
         };
 
@@ -165,7 +177,11 @@ impl VehicleService {
     }
 
     /// Compare multiple vehicles side-by-side with AI recommendation.
-    pub async fn compare_vehicles(&self, plates: &[String], locale: &str) -> anyhow::Result<ComparisonResult> {
+    pub async fn compare_vehicles(
+        &self,
+        plates: &[String],
+        locale: &str,
+    ) -> anyhow::Result<ComparisonResult> {
         if plates.is_empty() || plates.len() > 5 {
             anyhow::bail!("Provide 2-5 plates for comparison");
         }
@@ -186,22 +202,28 @@ impl VehicleService {
             Some(result) => Ok(result),
             None => {
                 // Fallback: basic comparison without AI
-                let comparison = reports.iter().enumerate().map(|(i, r)| {
-                    crate::ai::ComparisonItem {
+                let comparison = reports
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| crate::ai::ComparisonItem {
                         plate: r.plate.clone(),
                         rank: (i + 1) as i32,
                         score: 0,
                         verdict: format!("{} {} {}", r.basic.make, r.basic.model, r.basic.year),
-                    }
-                }).collect();
+                    })
+                    .collect();
 
                 Ok(ComparisonResult {
                     comparison,
                     best_pick: crate::ai::BestPick {
                         plate: reports.first().map(|r| r.plate.clone()).unwrap_or_default(),
-                        reason: "AI analysis unavailable — configure AI_API_KEY for recommendations".into(),
+                        reason:
+                            "AI analysis unavailable — configure AI_API_KEY for recommendations"
+                                .into(),
                     },
-                    ai_summary: "AI comparison unavailable. Configure AI_API_KEY for detailed analysis.".into(),
+                    ai_summary:
+                        "AI comparison unavailable. Configure AI_API_KEY for detailed analysis."
+                            .into(),
                 })
             }
         }
@@ -217,7 +239,8 @@ impl VehicleService {
 
     /// Get inspection history for a plate.
     pub async fn get_inspections(&self, plate: &str) -> anyhow::Result<InspectionInfo> {
-        let rows = repositories::find_inspections_by_plate(&self.pool, &plate.to_uppercase()).await?;
+        let rows =
+            repositories::find_inspections_by_plate(&self.pool, &plate.to_uppercase()).await?;
         let items: Vec<InspectionItem> = rows.iter().map(|r| r.to_item()).collect();
         Ok(InspectionInfo {
             total_inspections: items.len(),
@@ -251,10 +274,13 @@ impl VehicleService {
         let recall_items: Vec<RecallItem> = recalls.iter().map(|r| r.to_item()).collect();
         let open_recalls = recall_items.iter().filter(|r| !r.fix_available).count();
 
-        let ownership_events: Vec<OwnershipEvent> = ownership.iter().map(|o| OwnershipEvent {
-            date: o.date.map(|d| d.to_string()).unwrap_or_default(),
-            event: o.event.clone().unwrap_or_default(),
-        }).collect();
+        let ownership_events: Vec<OwnershipEvent> = ownership
+            .iter()
+            .map(|o| OwnershipEvent {
+                date: o.date.map(|d| d.to_string()).unwrap_or_default(),
+                event: o.event.clone().unwrap_or_default(),
+            })
+            .collect();
 
         VehicleReport {
             plate: vehicle.plate.clone(),

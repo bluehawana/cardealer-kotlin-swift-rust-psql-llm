@@ -32,7 +32,7 @@ pub struct BiluppgifterVehicle {
     pub body_type: Option<String>,
     pub fuel: Option<String>,
     pub fuel_type: Option<String>,
-    pub engine_power: Option<i32>,       // kW
+    pub engine_power: Option<i32>,        // kW
     pub engine_displacement: Option<i32>, // cc
     pub gearbox: Option<String>,
     pub number_of_gears: Option<i32>,
@@ -123,7 +123,9 @@ impl VehicleDataProvider {
         tracing::info!(plate = %plate, "fetching from Transportstyrelsen (web scraper)");
         match self.fetch_from_transportstyrelsen(&plate).await {
             Ok(data) => {
-                let result = self.store_transportstyrelsen_data(pool, &plate, &data).await?;
+                let result = self
+                    .store_transportstyrelsen_data(pool, &plate, &data)
+                    .await?;
                 Ok(result)
             }
             Err(e) => {
@@ -142,7 +144,10 @@ impl VehicleDataProvider {
         let resp = self
             .http
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.biluppgifter_api_key))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.biluppgifter_api_key),
+            )
             .send()
             .await?;
 
@@ -153,7 +158,9 @@ impl VehicleDataProvider {
         }
 
         let response: BiluppgifterResponse = resp.json().await?;
-        response.data.ok_or_else(|| anyhow::anyhow!("No vehicle data returned for plate {}", plate))
+        response
+            .data
+            .ok_or_else(|| anyhow::anyhow!("No vehicle data returned for plate {}", plate))
     }
 
     /// Store Biluppgifter data into our database.
@@ -288,15 +295,21 @@ impl VehicleDataProvider {
 
     /// Fetch basic data from Transportstyrelsen public web page.
     /// Uses the public "Fordonsuppgifter" service — free, no API key needed.
-    async fn fetch_from_transportstyrelsen(&self, plate: &str) -> anyhow::Result<TransportstyrelsenData> {
+    async fn fetch_from_transportstyrelsen(
+        &self,
+        plate: &str,
+    ) -> anyhow::Result<TransportstyrelsenData> {
         // Transportstyrelsen has a public form at this URL
         let url = "https://fordonsuppgifter.transportstyrelsen.se/api/vehicle";
 
         // Try the API endpoint first
         let resp = self
             .http
-            .get(&format!("{}?registrationNumber={}", url, plate))
-            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+            .get(format!("{}?registrationNumber={}", url, plate))
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            )
             .header("Accept", "text/html,application/xhtml+xml,application/json")
             .send()
             .await;
@@ -319,7 +332,10 @@ impl VehicleDataProvider {
         let resp = self
             .http
             .post(form_url)
-            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            )
             .form(&[("regnr", plate)])
             .send()
             .await?;
@@ -419,6 +435,7 @@ impl VehicleDataProvider {
 // ─── Result types ────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct FetchResult {
     pub source: String,
     pub plate: String,
@@ -450,7 +467,11 @@ pub struct TransportstyrelsenData {
 
 /// Parse JSON response from Transportstyrelsen API.
 fn parse_json_response(data: &serde_json::Value, _plate: &str) -> TransportstyrelsenData {
-    let s = |key: &str| data.get(key).and_then(|v| v.as_str()).map(|s| s.to_string());
+    let s = |key: &str| {
+        data.get(key)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    };
     let i = |key: &str| data.get(key).and_then(|v| v.as_i64()).map(|n| n as i32);
     let f = |key: &str| data.get(key).and_then(|v| v.as_f64());
 
@@ -477,7 +498,10 @@ fn parse_json_response(data: &serde_json::Value, _plate: &str) -> Transportstyre
 }
 
 /// Parse Transportstyrelsen HTML response to extract vehicle data.
-fn parse_transportstyrelsen_html(html: &str, _plate: &str) -> anyhow::Result<TransportstyrelsenData> {
+fn parse_transportstyrelsen_html(
+    html: &str,
+    _plate: &str,
+) -> anyhow::Result<TransportstyrelsenData> {
     let extract = |labels: &[&str]| -> Option<String> {
         for label in labels {
             if let Some(pos) = html.find(label) {
@@ -513,15 +537,11 @@ fn parse_transportstyrelsen_html(html: &str, _plate: &str) -> anyhow::Result<Tra
 
     let parse_int = |labels: &[&str]| -> Option<i32> {
         extract(labels).and_then(|s| {
-            s.replace(" kg", "")
-                .replace(" SEK", "")
-                .replace(" g/km", "")
-                .replace(" kW", "")
-                .replace('\u{a0}', "")
-                .replace(' ', "")
-                .trim()
-                .parse::<i32>()
-                .ok()
+            let cleaned: String = s
+                .chars()
+                .filter(|c| c.is_ascii_digit() || *c == '-')
+                .collect();
+            cleaned.parse::<i32>().ok()
         })
     };
 
@@ -554,11 +574,18 @@ fn parse_transportstyrelsen_html(html: &str, _plate: &str) -> anyhow::Result<Tra
         tax_per_year: parse_int(&["Fordonsskatt", "Vehicle tax", "Skatt"]),
         engine_power_hp: power_hp,
         engine_displacement_l: displacement_l,
-        first_registration: extract(&["Första registrering", "First registration", "Forsta registrering"]),
-        inspection_result: extract(&["Besiktningsresultat", "Inspection result", "Senaste besiktning"]),
+        first_registration: extract(&[
+            "Första registrering",
+            "First registration",
+            "Forsta registrering",
+        ]),
+        inspection_result: extract(&[
+            "Besiktningsresultat",
+            "Inspection result",
+            "Senaste besiktning",
+        ]),
         inspection_date: extract(&["Besiktningsdatum", "Inspection date", "Senast godkänd"]),
         inspection_mileage: parse_int(&["Mätarställning", "Odometer"]),
         inspection_notes: extract(&["Anmärkningar", "Remarks"]),
     })
 }
-

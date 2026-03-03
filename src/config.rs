@@ -42,7 +42,7 @@ impl Config {
         let db_host = env::var("DB_HOST").unwrap_or_else(|_| "localhost".into());
         let db_port = env::var("DB_PORT").unwrap_or_else(|_| "5432".into());
         let db_user = env::var("DB_USER").unwrap_or_else(|_| "cardeal".into());
-        let db_pass = env::var("DB_PASSWORD").unwrap_or_else(|_| "cardeal_secret".into());
+        let db_pass = env::var("DB_PASSWORD").expect("DB_PASSWORD must be set");
         let db_name = env::var("DB_NAME").unwrap_or_else(|_| "cardeal".into());
         let db_ssl = env::var("DB_SSLMODE").unwrap_or_else(|_| "disable".into());
         let db_url = format!(

@@ -52,7 +52,7 @@ jobs:
         env:
           POSTGRES_DB: cardeal_test
           POSTGRES_USER: cardeal
-          POSTGRES_PASSWORD: cardeal_test_pw
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD || 'test_only_ci' }}
         ports:
           - 5432:5432
         options: >-
@@ -71,7 +71,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgres://cardeal:cardeal_test_pw@localhost:5432/cardeal_test
+      DATABASE_URL: postgres://cardeal:${{ secrets.TEST_DB_PASSWORD || 'test_only_ci' }}@localhost:5432/cardeal_test
       REDIS_ADDR: redis://localhost:6379
       SERVER_PORT: 8080
       AI_API_KEY: ""

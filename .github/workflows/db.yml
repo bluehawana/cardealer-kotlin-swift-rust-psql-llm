@@ -19,7 +19,7 @@ jobs:
         env:
           POSTGRES_DB: cardeal_migration_test
           POSTGRES_USER: cardeal
-          POSTGRES_PASSWORD: cardeal_test_pw
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD || 'test_only_ci' }}
         ports:
           - 5432:5432
         options: >-
@@ -36,12 +36,13 @@ jobs:
 
       - name: Run migrations
         env:
-          DATABASE_URL: postgres://cardeal:cardeal_test_pw@localhost:5432/cardeal_migration_test
+          DATABASE_URL: postgres://cardeal:${{ secrets.TEST_DB_PASSWORD || 'test_only_ci' }}@localhost:5432/cardeal_migration_test
         run: sqlx migrate run
 
       - name: Verify migrations are reversible
         env:
-          DATABASE_URL: postgres://cardeal:cardeal_test_pw@localhost:5432/cardeal_migration_test
+          DATABASE_URL: postgres://cardeal:${{ secrets.TEST_DB_PASSWORD || 'test_only_ci' }}@localhost:5432/cardeal_migration_test
         run: |
           echo "✅ All migrations applied successfully"
           sqlx migrate info
+

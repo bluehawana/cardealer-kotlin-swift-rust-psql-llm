@@ -5,6 +5,7 @@ use sqlx::FromRow;
 // ─── Database Models ─────────────────────────────────────────────
 
 #[derive(Debug, Clone, FromRow)]
+#[allow(dead_code)] // Fields read by SQLx at runtime
 pub struct VehicleRow {
     pub id: i32,
     pub plate: String,
@@ -45,6 +46,7 @@ pub struct VehicleRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
+#[allow(dead_code)]
 pub struct InspectionRow {
     pub id: i32,
     pub plate: String,
@@ -55,6 +57,7 @@ pub struct InspectionRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
+#[allow(dead_code)]
 pub struct RecallRow {
     pub id: i32,
     pub vin: String,
@@ -65,6 +68,7 @@ pub struct RecallRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
+#[allow(dead_code)]
 pub struct ReportRow {
     pub id: i32,
     pub plate: String,
@@ -90,6 +94,7 @@ pub struct ListingRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
+#[allow(dead_code)]
 pub struct OwnershipRow {
     pub id: i32,
     pub plate: String,
@@ -294,21 +299,7 @@ pub struct FreeReport {
     pub unlock_message: String,
 }
 
-// ─── User Models ─────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreditBalance {
-    pub user_id: i32,
-    pub plan: String,
-    pub credits: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueryHistoryItem {
-    pub plate: String,
-    pub queried_at: String,
-    pub cached: bool,
-}
+// ─── User Models (TODO: implement when user auth is added) ──────
 
 // ─── Error Response ──────────────────────────────────────────────
 

@@ -13,7 +13,7 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=cardeal
-      - DB_PASSWORD=cardeal_secret
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in .env}
       - DB_NAME=cardeal
       - DB_SSLMODE=disable
       - DB_MAX_CONNS=25
@@ -39,7 +39,7 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_USER: cardeal
-      POSTGRES_PASSWORD: cardeal_secret
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       POSTGRES_DB: cardeal
     volumes:
       - pgdata:/var/lib/postgresql/data

@@ -174,7 +174,12 @@ impl LlmClient {
     }
 
     /// Generate an AI evaluation for a single vehicle.
-    pub async fn evaluate(&self, report: &VehicleReport, listings: &[ListingRow], locale: &str) -> anyhow::Result<Option<AiEnrichment>> {
+    pub async fn evaluate(
+        &self,
+        report: &VehicleReport,
+        listings: &[ListingRow],
+        locale: &str,
+    ) -> anyhow::Result<Option<AiEnrichment>> {
         if self.cfg.api_key.is_empty() {
             tracing::warn!("AI API key not configured, skipping AI enrichment");
             return Ok(None);
@@ -206,7 +211,12 @@ impl LlmClient {
     }
 
     /// Compare multiple vehicles and recommend the best one.
-    pub async fn compare(&self, reports: &[VehicleReport], listings: &[Vec<ListingRow>], locale: &str) -> anyhow::Result<Option<ComparisonResult>> {
+    pub async fn compare(
+        &self,
+        reports: &[VehicleReport],
+        listings: &[Vec<ListingRow>],
+        locale: &str,
+    ) -> anyhow::Result<Option<ComparisonResult>> {
         if self.cfg.api_key.is_empty() {
             tracing::warn!("AI API key not configured, skipping comparison");
             return Ok(None);
@@ -220,12 +230,20 @@ impl LlmClient {
             } else {
                 "[]".to_string()
             };
-            data_parts.push(format!("--- Vehicle {} ({}) ---\n{}\n\nListing History:\n{}", i + 1, report.plate, vehicle_json, listing_json));
+            data_parts.push(format!(
+                "--- Vehicle {} ({}) ---\n{}\n\nListing History:\n{}",
+                i + 1,
+                report.plate,
+                vehicle_json,
+                listing_json
+            ));
         }
 
         let user_prompt = format!(
             "Compare these {} vehicles and recommend the best purchase.\n\nLocale: {}\n\n{}",
-            reports.len(), locale, data_parts.join("\n\n")
+            reports.len(),
+            locale,
+            data_parts.join("\n\n")
         );
 
         let content = self.chat(COMPARISON_PROMPT, &user_prompt).await?;
@@ -236,7 +254,10 @@ impl LlmClient {
                 tracing::warn!("failed to parse comparison response: {}", e);
                 Ok(Some(ComparisonResult {
                     comparison: vec![],
-                    best_pick: BestPick { plate: String::new(), reason: String::new() },
+                    best_pick: BestPick {
+                        plate: String::new(),
+                        reason: String::new(),
+                    },
                     ai_summary: content,
                 }))
             }
@@ -248,8 +269,14 @@ impl LlmClient {
         let req = ChatRequest {
             model: self.cfg.model.clone(),
             messages: vec![
-                ChatMessage { role: "system".into(), content: system.into() },
-                ChatMessage { role: "user".into(), content: user.into() },
+                ChatMessage {
+                    role: "system".into(),
+                    content: system.into(),
+                },
+                ChatMessage {
+                    role: "user".into(),
+                    content: user.into(),
+                },
             ],
             max_tokens: self.cfg.max_tokens,
             temperature: 0.3,
